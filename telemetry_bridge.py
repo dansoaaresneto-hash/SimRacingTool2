@@ -106,8 +106,8 @@ def main():
                     "gear": int(v.mGear),
                     "fuel": round(float(v.mFuel), 2),
                     "fuelCapacity": 100.0,
-                    "tireWear": [int(v.mWheel[i].mWear * 100) for i in range(4)],
-                    "tireTemp": [int(v.mWheel[i].mTemperature[0] - 273.15) for i in range(4)],
+                    "tireWear": [int(v.mWheels[i].mWear * 100) for i in range(4)],
+                    "tireTemp": [int(v.mWheels[i].mTemperature[1] - 273.15) for i in range(4)],  # [1] = centro do pneu
                     "brake": int(v.mUnfilteredBrake * 100),
                     "throttle": int(v.mUnfilteredThrottle * 100),
                     "steering": round(float(v.mUnfilteredSteering), 3),
