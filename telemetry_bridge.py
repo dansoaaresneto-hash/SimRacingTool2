@@ -6,9 +6,12 @@ import random
 
 # Tenta importar a biblioteca de telemetria real
 try:
-    import rF2SharedMemory
+    import sys
+    sys.path.insert(0, '.')
+    from pyRfactor2SharedMemory.sharedMemoryAPI import SimInfoAPI
     REAL_TELEMETRY_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    print(f"[AVISO] Telemetria real não disponível: {e}")
     REAL_TELEMETRY_AVAILABLE = False
 
 # URL do seu app
@@ -49,7 +52,7 @@ class TelemetryBridge:
         
         if REAL_TELEMETRY_AVAILABLE:
             try:
-                self.reader = rF2SharedMemory.rF2SharedMemoryReader()
+                self.reader = SimInfoAPI()
                 print("[SISTEMA] Leitor rFactor 2 inicializado.")
             except Exception as e:
                 print(f"[ERRO] Falha ao inicializar leitor: {e}")
