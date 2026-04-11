@@ -34,7 +34,6 @@ def format_lap_time(seconds_float):
     return f"{minutes}:{seconds:02d}.{milliseconds:03d}"
 
 def lmu_is_running():
-    """Verifica se o processo do Le Mans Ultimate está rodando."""
     for proc in psutil.process_iter(['name']):
         try:
             nome = proc.info['name'].lower()
@@ -51,8 +50,7 @@ def main():
     print("\n========================================")
     print("  SimRacing Telemetry Bridge - LMU")
     print("========================================")
-    print(f"  Servidor: {SERVER_URL}")
-    print("  Aguardando Le Mans Ultimate...\n")
+    print(f"  Servidor: {SERVER_URL}\n")
 
     status_anterior = None
 
@@ -66,9 +64,9 @@ def main():
 
             if status_atual != status_anterior:
                 print("\n--- DIAGNÓSTICO ---")
-                print(f"  LMU/rF2 rodando : {'✅ SIM (' + nome_proc + ')' if rodando else '❌ NÃO detectado'}")
-                print(f"  Shared Memory   : {'✅ OK' if sm_ok else '❌ NÃO disponível (plugin não instalado?)'}")
-                print(f"  Na pista        : {'✅ SIM' if na_pista else '⏳ NÃO (no menu ou garagem)'}")
+                print(f"  LMU rodando   : {'✅ SIM (' + nome_proc + ')' if rodando else '❌ NÃO detectado'}")
+                print(f"  Shared Memory : {'✅ OK' if sm_ok else '❌ NÃO disponível'}")
+                print(f"  Na pista      : {'✅ SIM' if na_pista else '⏳ NÃO (menu/garagem)'}")
                 print("-------------------\n")
                 status_anterior = status_atual
 
@@ -85,8 +83,11 @@ def main():
                 })
 
             if sm_ok and na_pista:
+                # rF2VehicleTelemetry campos corretos
                 v = info.playersVehicleTelemetry()
+                # rF2VehicleScoring campos corretos
                 s = info.playersVehicleScoring()
+                # rF2ScoringInfo campos corretos
                 scor = info.Rf2Scor.mScoringInfo
 
                 speed_kmh = math.sqrt(
@@ -96,38 +97,58 @@ def main():
                 g_lat = v.mLocalAccel.x / 9.80665
                 g_lon = v.mLocalAccel.z / 9.80665
 
+                # mLapDist no ScoringInfo = comprimento total da pista
                 track_len = scor.mLapDist
+                # mLapDist no VehicleScoring = distância percorrida pelo carro
                 dist_pct = (s.mLapDist / track_len) * 100 if track_len > 0 else 0
+
                 track_name = Cbytestring2Python(scor.mTrackName) or "Desconhecida"
+
+                # mWheels[i]: FL=0, FR=1, RL=2, RR=3
+                # mTemperature[3]: left/center/right do pneu em Kelvin
+                # mWear: 0.0-1.0
+                tire_wear = [int(v.mWheels[i].mWear * 100) for i in range(4)]
+                tire_temp = [int(v.mWheels[i].mTemperature[1] - 273.15) for i in range(4)]
+
+                # Tempo atual na volta = mTimeIntoLap
+                # Melhor volta = mBestLapTime
+                # Última volta = mLastLapTime
+                # Setores da última volta: mLastSector1, mLastSector2 (acumulado)
+                last_s1 = float(s.mLastSector1)
+                last_s2 = float(s.mLastSector2) - last_s1  # s2 é acumulado, subtrai s1
+                last_s3 = float(s.mLastLapTime) - float(s.mLastSector2)
 
                 data = {
                     "speed": int(speed_kmh),
                     "rpm": int(v.mEngineRPM),
                     "gear": int(v.mGear),
                     "fuel": round(float(v.mFuel), 2),
-                    "fuelCapacity": 100.0,
-                    "tireWear": [int(v.mWheels[i].mWear * 100) for i in range(4)],
-                    "tireTemp": [int(v.mWheels[i].mTemperature[1] - 273.15) for i in range(4)],  # [1] = centro do pneu
+                    "fuelCapacity": round(float(v.mFuelCapacity), 2),
+                    "tireWear": tire_wear,
+                    "tireTemp": tire_temp,
                     "brake": int(v.mUnfilteredBrake * 100),
                     "throttle": int(v.mUnfilteredThrottle * 100),
                     "steering": round(float(v.mUnfilteredSteering), 3),
                     "gLat": round(g_lat, 2),
                     "gLon": round(g_lon, 2),
                     "lapNumber": int(s.mTotalLaps) + 1,
-                    "lapTime": format_lap_time(s.mCurrentLapTime),
+                    "lapTime": format_lap_time(s.mTimeIntoLap),
                     "bestLapTime": float(s.mBestLapTime),
-                    "sectors": [
-                        float(s.mLastSector1),
-                        float(s.mLastSector2),
-                        float(s.mCurEstimatedLapTime - s.mLastSector1 - s.mLastSector2)
-                    ],
+                    "lastLapTime": format_lap_time(s.mLastLapTime),
+                    "sectors": [last_s1, last_s2, last_s3],
+                    "curSector1": float(s.mCurSector1),
+                    "curSector2": float(s.mCurSector2),
+                    "estimatedLapTime": float(s.mEstimatedLapTime),
                     "trackPos": round(dist_pct, 1),
                     "lap_dist_pct": round(dist_pct, 2),
-                    "pos_x": float(v.mPos[0]),
-                    "pos_z": float(v.mPos[2]),
+                    "pos_x": float(v.mPos.x),
+                    "pos_z": float(v.mPos.z),
                     "trackName": track_name,
                     "weather": "Chuva" if scor.mRaining > 0.1 else "Seco",
-                    "lastLapTime": format_lap_time(s.mLastLapTime),
+                    "trackTemp": round(float(scor.mTrackTemp), 1),
+                    "ambientTemp": round(float(scor.mAmbientTemp), 1),
+                    "place": int(s.mPlace),
+                    "inPits": bool(s.mInPits),
                     "simulated": False
                 }
 
@@ -135,24 +156,22 @@ def main():
 
                 sys.stdout.write(
                     f"\r[LIVE] {track_name} | "
+                    f"P{data['place']} | "
                     f"Lap {data['lapNumber']} | "
                     f"{data['speed']}km/h | "
                     f"Marcha {data['gear']} | "
                     f"RPM {data['rpm']} | "
-                    f"Combustível {data['fuel']}L    "
+                    f"Fuel {data['fuel']}L    "
                 )
                 sys.stdout.flush()
 
             else:
-                sio.emit('telemetry', {
-                    "simulated": False,
-                    "waiting": True,
-                    "message": (
-                        "❌ LMU não detectado. Abra o jogo." if not rodando else
-                        "❌ Plugin Shared Memory não instalado." if not sm_ok else
-                        "⏳ Aguardando entrar na pista..."
-                    )
-                })
+                msg = (
+                    "❌ LMU não detectado. Abra o jogo." if not rodando else
+                    "❌ Plugin Shared Memory não instalado." if not sm_ok else
+                    "⏳ Aguardando entrar na pista..."
+                )
+                sio.emit('telemetry', {"simulated": False, "waiting": True, "message": msg})
                 time.sleep(1)
                 continue
 
