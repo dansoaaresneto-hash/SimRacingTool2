@@ -1,63 +1,178 @@
 import socketio
 import time
-import random
 import sys
+import math
+import random
 
-# NOTA: Para funcionar no seu PC, você deve instalar:
-# pip install "python-socketio[client]"
-# Se estiver usando rFactor 2 real, instale também:
-# pip install pyRfactor2SharedMemory
+# Tenta importar a biblioteca de telemetria real
+try:
+    import rF2SharedMemory
+    REAL_TELEMETRY_AVAILABLE = True
+except ImportError:
+    REAL_TELEMETRY_AVAILABLE = False
 
-# URL do seu app no Cloud Run (substitua se necessário)
+# URL do seu app
 SERVER_URL = "http://localhost:3000" 
 
 sio = socketio.Client()
 
 @sio.event
 def connect():
-    print("Conectado ao servidor RaceMind AI!")
+    print("\n[SISTEMA] Conectado ao servidor RaceMind AI!")
 
 @sio.event
 def disconnect():
-    print("Desconectado do servidor.")
+    print("\n[SISTEMA] Desconectado do servidor.")
 
-def get_telemetry():
-    """
-    Simula ou lê a telemetria do rFactor 2.
-    Para usar dados REAIS, descomente a parte do pyRfactor2SharedMemory.
-    """
-    # Exemplo de dados simulados para teste
-    return {
-        "fuel": 45.5,
-        "fuelCapacity": 100,
-        "tireWear": [5, 6, 8, 7], # FL, FR, RL, RR
-        "weather": "Ensolarado",
-        "position": 4,
-        "gapAhead": 1.245,
-        "gapBehind": 0.890,
-        "lapTime": "1:45.230",
-        "lastLapTime": "1:44.890",
-        "rpm": 7500,
-        "speed": 240,
-        "gear": 5
-    }
+class TelemetryBridge:
+    def __init__(self):
+        self.reader = None
+        self.sim_start_time = time.time()
+        self.sim_lap_start = time.time()
+        self.sim_lap_count = 1
+        self.sim_dist = 0.0
+        
+        if REAL_TELEMETRY_AVAILABLE:
+            try:
+                self.reader = rF2SharedMemory.rF2SharedMemoryReader()
+                print("[SISTEMA] Leitor rFactor 2 inicializado.")
+            except Exception as e:
+                print(f"[ERRO] Falha ao inicializar leitor: {e}")
+
+    def get_data(self):
+        """Lê dados reais ou retorna simulados realistas."""
+        if self.reader:
+            try:
+                telemetry = self.reader.readTelemetry()
+                scoring = self.reader.readScoring()
+                
+                if scoring and scoring.mScoringInfo.mNumVehicles > 0:
+                    v = telemetry.mVehicles[0]
+                    s = scoring.mVehicles[0]
+                    
+                    # Velocidade em km/h
+                    speed_kmh = math.sqrt(v.mLocalVel.z**2 + v.mLocalVel.x**2 + v.mLocalVel.y**2) * 3.6
+                    
+                    # Forças G (m/s^2 para G)
+                    g_lat = v.mLocalAccel.x / 9.80665
+                    g_lon = v.mLocalAccel.z / 9.80665
+                    
+                    # Distância percorrida %
+                    track_len = scoring.mScoringInfo.mTrackLen
+                    dist_pct = (s.mLapDist / track_len) * 100 if track_len > 0 else 0
+                    
+                    return {
+                        "speed": int(speed_kmh),
+                        "rpm": int(v.mEngineRPM),
+                        "gear": v.mGear,
+                        "fuel": v.mFuel,
+                        "fuelCapacity": 100.0,
+                        "tireWear": [int(v.mWheel[i].mWear * 100) for i in range(4)],
+                        "tireTemp": [int(v.mWheel[i].mTemperature[0] - 273.15) for i in range(4)], # Kelvin para Celsius
+                        "brake": int(v.mUnfilteredBrake * 100),
+                        "throttle": int(v.mUnfilteredThrottle * 100),
+                        "steering": float(v.mUnfilteredSteering),
+                        "gLat": round(g_lat, 2),
+                        "gLon": round(g_lon, 2),
+                        "lapNumber": s.mLapNumber,
+                        "lapTime": s.mCurrentLapTime,
+                        "bestLapTime": s.mBestLapTime,
+                        "sectors": [s.mLastSector1, s.mLastSector2, s.mCurEstimatedLapTime - s.mLastSector1 - s.mLastSector2],
+                        "trackPos": round(dist_pct, 1),
+                        "lap_dist_pct": round(dist_pct, 2),
+                        "pos_x": float(v.mPos[0]),
+                        "pos_z": float(v.mPos[2]),
+                        "trackName": scoring.mScoringInfo.mTrackName.decode('utf-8', 'ignore').strip() if hasattr(scoring.mScoringInfo.mTrackName, 'decode') else str(scoring.mScoringInfo.mTrackName),
+                        "weather": "Chuva" if scoring.mScoringInfo.mRaining > 0.1 else "Seco",
+                        "lastLapTime": str(s.mLastLapTime)
+                    }
+            except Exception:
+                pass
+
+        # --- MODO SIMULADO REALISTA ---
+        now = time.time()
+        lap_elapsed = now - self.sim_lap_start
+        
+        # Simula uma volta de 90 segundos
+        lap_duration = 90.0
+        if lap_elapsed >= lap_duration:
+            self.sim_lap_start = now
+            self.sim_lap_count += 1
+            lap_elapsed = 0
+            
+        self.sim_dist = (lap_elapsed / lap_duration) * 100
+        
+        # Simula Posição Elíptica (Raio X=500m, Raio Z=300m)
+        angle = (lap_elapsed / lap_duration) * 2 * math.pi
+        sim_pos_x = 500 * math.cos(angle)
+        sim_pos_z = 300 * math.sin(angle)
+        
+        # Simula RPM e Marcha baseado no tempo da volta (curvas simples)
+        phase = (lap_elapsed % 10) / 10 # Ciclo de 10s para trocas de marcha
+        sim_rpm = 4000 + (math.sin(phase * math.pi) * 4000) + random.randint(-100, 100)
+        sim_gear = int(phase * 6) + 2
+        sim_speed = 100 + (phase * 150) + random.randint(-5, 5)
+        
+        # Simula G-force
+        sim_g_lat = math.sin(lap_elapsed * 0.5) * 2.5
+        sim_g_lon = math.cos(lap_elapsed * 0.8) * 1.5
+        
+        # Simula Pedal
+        sim_throttle = 80 + math.sin(phase * math.pi) * 20 if phase < 0.8 else 0
+        sim_brake = 100 if phase > 0.85 else 0
+
+        return {
+            "speed": int(sim_speed),
+            "rpm": int(sim_rpm),
+            "gear": sim_gear,
+            "fuel": max(0, 50.0 - (now - self.sim_start_time) * 0.05),
+            "fuelCapacity": 100.0,
+            "tireWear": [10, 11, 15, 14],
+            "tireTemp": [90 + random.randint(-2, 2) for _ in range(4)],
+            "brake": int(sim_brake),
+            "throttle": int(sim_throttle),
+            "steering": round(math.sin(lap_elapsed) * 0.5, 2),
+            "gLat": round(sim_g_lat, 2),
+            "gLon": round(sim_g_lon, 2),
+            "lapNumber": self.sim_lap_count,
+            "lapTime": round(lap_elapsed, 3),
+            "bestLapTime": 89.450,
+            "sectors": [28.5, 32.1, 28.85],
+            "trackPos": round(self.sim_dist, 1),
+            "lap_dist_pct": round(self.sim_dist, 2),
+            "pos_x": round(sim_pos_x, 2),
+            "pos_z": round(sim_pos_z, 2),
+            "trackName": "Interlagos_Sim",
+            "weather": "Simulado",
+            "lastLapTime": "1:29.450"
+        }
 
 def main():
+    bridge = TelemetryBridge()
+    
     try:
         sio.connect(SERVER_URL)
-        print(f"Enviando telemetria para {SERVER_URL}...")
+        print(f"[SISTEMA] Monitorando telemetria avançada...")
         
         while True:
             if sio.connected:
-                data = get_telemetry()
+                data = bridge.get_data()
                 sio.emit('telemetry', data)
-                # print(f"Dados enviados: Combustível {data['fuel']}L")
-            time.sleep(1) # Envia a cada 1 segundo
+                
+                # Feedback visual no terminal
+                status = f"\r[LIVE] Lap: {data['lapNumber']} | Pos: {data['trackPos']}% | Fuel: {data['fuel']:.1f}L | Spd: {data['speed']}km/h | RPM: {data['rpm']}    "
+                sys.stdout.write(status)
+                sys.stdout.flush()
+                
+            time.sleep(0.1) # 10Hz para telemetria mais suave
             
+    except KeyboardInterrupt:
+        print("\n\n[SISTEMA] Encerrando...")
     except Exception as e:
-        print(f"Erro: {e}")
+        print(f"\n[ERRO] {e}")
     finally:
-        sio.disconnect()
+        if sio.connected:
+            sio.disconnect()
 
 if __name__ == "__main__":
     main()
