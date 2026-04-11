@@ -12,7 +12,7 @@ except ImportError:
     REAL_TELEMETRY_AVAILABLE = False
 
 # URL do seu app
-SERVER_URL = "http://localhost:3000" 
+SERVER_URL = "https://simracingtool2.onrender.com/" 
 
 sio = socketio.Client()
 
