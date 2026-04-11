@@ -71,6 +71,7 @@ export default function App() {
   const [sessionAdvice, setSessionAdvice] = useState<string[]>([]);
   const [isGeneratingAdvice, setIsGeneratingAdvice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [cornerPhaseState, setCornerPhaseState] = useState<'none' | 'braking' | 'cornering'>('none');
   const [lapSummary, setLapSummary] = useState<{
     number: number;
     time: string;
@@ -197,15 +198,19 @@ export default function App() {
       if (nowTime - lastCornerTime.current > 5000) { // Cooldown
         if (cornerPhase.current === 'none' && data.brake > 20) {
           cornerPhase.current = 'braking';
+          setCornerPhaseState('braking');
         } else if (cornerPhase.current === 'braking' && Math.abs(data.gLat) > 0.3) {
           cornerPhase.current = 'cornering';
+          setCornerPhaseState('cornering');
         } else if (cornerPhase.current === 'cornering' && data.throttle > 20) {
           // Sequence complete: Braking -> Cornering -> Acceleration
           analyzeCorner(historyRef.current);
           cornerPhase.current = 'none';
+          setCornerPhaseState('none');
           lastCornerTime.current = nowTime;
         } else if (data.speed < 10) { // Reset if stopped
           cornerPhase.current = 'none';
+          setCornerPhaseState('none');
         }
       }
       
@@ -691,8 +696,8 @@ export default function App() {
               <div className="flex items-center justify-between text-[10px] text-blue-400/50 uppercase font-bold">
                 <span>Análise de Telemetria</span>
                 <span className="flex items-center gap-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${cornerPhase.current !== 'none' ? 'bg-blue-400 animate-pulse' : 'bg-white/10'}`} />
-                  {cornerPhase.current !== 'none' ? 'Detectando Curva' : 'Monitorando'}
+                  <div className={`w-1.5 h-1.5 rounded-full ${cornerPhaseState !== 'none' ? 'bg-blue-400 animate-pulse' : 'bg-white/10'}`} />
+                  {cornerPhaseState !== 'none' ? 'Detectando Curva' : 'Monitorando'}
                 </span>
               </div>
             </div>
@@ -1179,10 +1184,19 @@ function TrackMap({ telemetry, feedbackPoints }: { telemetry: TelemetryData | nu
   const trackName = telemetry?.trackName || 'unknown';
   const lastLapDist = useRef(0);
 
+  // Refs for animation loop to avoid React state updates
+  const telemetryRef = useRef(telemetry);
+  const feedbackPointsRef = useRef(feedbackPoints);
+  const pointsRef = useRef(points);
+
+  useEffect(() => { telemetryRef.current = telemetry; }, [telemetry]);
+  useEffect(() => { feedbackPointsRef.current = feedbackPoints; }, [feedbackPoints]);
+  useEffect(() => { pointsRef.current = points; }, [points]);
+
   // Helper to transform coordinates
-  const getTransform = (canvas: HTMLCanvasElement, points: {x: number, z: number}[]) => {
-    const xs = points.map(p => p.x);
-    const zs = points.map(p => p.z);
+  const getTransform = (canvas: HTMLCanvasElement, trackPoints: {x: number, z: number}[]) => {
+    const xs = trackPoints.map(p => p.x);
+    const zs = trackPoints.map(p => p.z);
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
     const minZ = Math.min(...zs);
@@ -1275,84 +1289,82 @@ function TrackMap({ telemetry, feedbackPoints }: { telemetry: TelemetryData | nu
   }, [telemetry, isMapping, trackName, points.length]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || points.length < 2) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const transform = getTransform(canvas, points);
-
-    // Draw track
-    ctx.beginPath();
-    ctx.strokeStyle = '#222';
-    ctx.lineWidth = 6;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    const start = transform(points[0].x, points[0].z);
-    ctx.moveTo(start.x, start.y);
-    for (let i = 1; i < points.length; i++) {
-      const p = transform(points[i].x, points[i].z);
-      ctx.lineTo(p.x, p.y);
-    }
-    ctx.closePath();
-    ctx.stroke();
-
-    // Draw feedback points
-    feedbackPoints.forEach(fb => {
-      const pos = transform(fb.x, fb.z);
-      const color = fb.type === 'positive' ? '#22c55e' : fb.type === 'critical' ? '#ef4444' : '#f97316';
-      
-      // Pulsing effect using timestamp
-      const pulse = 1 + Math.sin(Date.now() / 200) * 0.2;
-      
-      ctx.beginPath();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.6;
-      ctx.arc(pos.x, pos.y, 8 * pulse, 0, Math.PI * 2);
-      ctx.fill();
-      
-      ctx.beginPath();
-      ctx.globalAlpha = 1.0;
-      ctx.fillStyle = color;
-      ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    });
-    ctx.globalAlpha = 1.0;
-
-    // Draw car position
-    if (telemetry) {
-      const car = transform(telemetry.pos_x, telemetry.pos_z);
-      ctx.beginPath();
-      ctx.fillStyle = '#f97316'; // orange-500
-      ctx.arc(car.x, car.y, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }, [points, telemetry, feedbackPoints]);
-
-  // Animation loop for pulsing
-  useEffect(() => {
     let frame: number;
+    
     const loop = () => {
       const canvas = canvasRef.current;
-      if (canvas && points.length >= 2) {
-        // Trigger re-render for pulse
-        setPoints(prev => [...prev]);
+      const currentPoints = pointsRef.current;
+      const currentTelemetry = telemetryRef.current;
+      const currentFeedbackPoints = feedbackPointsRef.current;
+
+      if (canvas && currentPoints.length >= 2) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Clear
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const transform = getTransform(canvas, currentPoints);
+
+          // Draw track
+          ctx.beginPath();
+          ctx.strokeStyle = '#222';
+          ctx.lineWidth = 6;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+
+          const start = transform(currentPoints[0].x, currentPoints[0].z);
+          ctx.moveTo(start.x, start.y);
+          for (let i = 1; i < currentPoints.length; i++) {
+            const p = transform(currentPoints[i].x, currentPoints[i].z);
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.closePath();
+          ctx.stroke();
+
+          // Draw feedback points
+          currentFeedbackPoints.forEach(fb => {
+            const pos = transform(fb.x, fb.z);
+            const color = fb.type === 'positive' ? '#22c55e' : fb.type === 'critical' ? '#ef4444' : '#f97316';
+            
+            // Pulsing effect using timestamp
+            const pulse = 1 + Math.sin(Date.now() / 200) * 0.2;
+            
+            ctx.beginPath();
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.6;
+            ctx.arc(pos.x, pos.y, 8 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = color;
+            ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          });
+          ctx.globalAlpha = 1.0;
+
+          // Draw car position
+          if (currentTelemetry) {
+            const car = transform(currentTelemetry.pos_x, currentTelemetry.pos_z);
+            ctx.beginPath();
+            ctx.fillStyle = '#f97316'; // orange-500
+            ctx.arc(car.x, car.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
       }
       frame = requestAnimationFrame(loop);
     };
+
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [points.length]);
+  }, []);
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-2xl p-6 relative overflow-hidden flex flex-col items-center justify-center min-h-[300px]">

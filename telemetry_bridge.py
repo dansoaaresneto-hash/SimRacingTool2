@@ -24,6 +24,21 @@ def connect():
 def disconnect():
     print("\n[SISTEMA] Desconectado do servidor.")
 
+def format_lap_time(seconds_float):
+    """Converte segundos float para formato M:SS.mmm"""
+    if seconds_float <= 0:
+        return "--:--.---"
+    minutes = int(seconds_float // 60)
+    seconds = int(seconds_float % 60)
+    milliseconds = int(round((seconds_float % 1) * 1000))
+    if milliseconds == 1000:
+        milliseconds = 0
+        seconds += 1
+        if seconds == 60:
+            seconds = 0
+            minutes += 1
+    return f"{minutes}:{seconds:02d}.{milliseconds:03d}"
+
 class TelemetryBridge:
     def __init__(self):
         self.reader = None
@@ -75,7 +90,7 @@ class TelemetryBridge:
                         "gLat": round(g_lat, 2),
                         "gLon": round(g_lon, 2),
                         "lapNumber": s.mLapNumber,
-                        "lapTime": s.mCurrentLapTime,
+                        "lapTime": format_lap_time(s.mCurrentLapTime),
                         "bestLapTime": s.mBestLapTime,
                         "sectors": [s.mLastSector1, s.mLastSector2, s.mCurEstimatedLapTime - s.mLastSector1 - s.mLastSector2],
                         "trackPos": round(dist_pct, 1),
@@ -84,7 +99,7 @@ class TelemetryBridge:
                         "pos_z": float(v.mPos[2]),
                         "trackName": scoring.mScoringInfo.mTrackName.decode('utf-8', 'ignore').strip() if hasattr(scoring.mScoringInfo.mTrackName, 'decode') else str(scoring.mScoringInfo.mTrackName),
                         "weather": "Chuva" if scoring.mScoringInfo.mRaining > 0.1 else "Seco",
-                        "lastLapTime": str(s.mLastLapTime)
+                        "lastLapTime": format_lap_time(s.mLastLapTime)
                     }
             except Exception:
                 pass
@@ -135,7 +150,7 @@ class TelemetryBridge:
             "gLat": round(sim_g_lat, 2),
             "gLon": round(sim_g_lon, 2),
             "lapNumber": self.sim_lap_count,
-            "lapTime": round(lap_elapsed, 3),
+            "lapTime": format_lap_time(lap_elapsed),
             "bestLapTime": 89.450,
             "sectors": [28.5, 32.1, 28.85],
             "trackPos": round(self.sim_dist, 1),
