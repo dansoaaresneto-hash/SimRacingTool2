@@ -94,10 +94,6 @@ export default function App() {
   const cornerPhase = useRef<'none' | 'braking' | 'cornering'>('none');
   const lastCornerTime = useRef<number>(0);
   const lastVoiceAlertTime = useRef<number>(0);
-  // Refs para evitar stale closures dentro dos listeners de socket
-  const lapFeedbacksRef = useRef<string[]>([]);
-  const isAidenAnalyzingRef = useRef<boolean>(false);
-  const telemetryRef2 = useRef<TelemetryData | null>(null);
 
   const speak = (text: string) => {
     if (isMuted || !window.speechSynthesis) return;
@@ -175,17 +171,15 @@ export default function App() {
             speak("Volta rápida! Continue assim.");
           }
           
-          // Trigger Lap Summary — usa ref para evitar stale closure
-          const recentFeedbacks = lapFeedbacksRef.current.slice(-2);
-          const currentBest = telemetryRef2.current?.bestLapTime;
+          // Trigger Lap Summary
+          const recentFeedbacks = lapFeedbacks.slice(-2);
           generateLapSummary(
             data.lapNumber - 1,
             lapTimeStr,
-            currentBest ? formatTime(currentBest) : lapTimeStr,
+            telemetry?.bestLapTime ? formatTime(telemetry.bestLapTime) : lapTimeStr,
             recentFeedbacks
           );
-          setLapFeedbacks([]);
-          lapFeedbacksRef.current = [];
+          setLapFeedbacks([]); // Reset for next lap
 
           setLaps(prev => [{ number: data.lapNumber - 1, time: lapTimeNum, timeStr: lapTimeStr }, ...prev].slice(0, 10));
           
@@ -267,8 +261,7 @@ export default function App() {
   }
 
   async function analyzeCorner(history: TelemetryData[]) {
-    if (isAidenAnalyzingRef.current || history.length < 10) return;
-    isAidenAnalyzingRef.current = true;
+    if (isAidenAnalyzing || history.length < 10) return;
     setIsAidenAnalyzing(true);
     try {
       const dataStr = history.map(d => 
@@ -320,10 +313,11 @@ export default function App() {
     } catch (error) {
       console.error("Erro no Aiden Coach:", error);
     } finally {
-      isAidenAnalyzingRef.current = false;
       setIsAidenAnalyzing(false);
     }
-  }(number: number, time: string, bestTime: string, feedbacks: string[]) {
+  }
+
+  async function generateLapSummary(number: number, time: string, bestTime: string, feedbacks: string[]) {
     try {
       let aiSummary = "Ótimo trabalho na pista.";
       if (feedbacks.length > 0) {
@@ -371,10 +365,6 @@ export default function App() {
   };
 
   const consistency = calculateConsistency();
-
-  // Manter refs sincronizados com state para uso dentro dos listeners
-  useEffect(() => { lapFeedbacksRef.current = lapFeedbacks; }, [lapFeedbacks]);
-  useEffect(() => { telemetryRef2.current = telemetry; }, [telemetry]);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('race_history');
