@@ -79,8 +79,8 @@ class TelemetryBridge:
                     g_lat = v.mLocalAccel.x / 9.80665
                     g_lon = v.mLocalAccel.z / 9.80665
 
-                    # Distância percorrida %
-                    track_len = scor_info.mTrackLen
+                    # Distância percorrida % (mLapDist no ScoringInfo = comprimento total da pista)
+                    track_len = scor_info.mLapDist
                     dist_pct = (s.mLapDist / track_len) * 100 if track_len > 0 else 0
 
                     # Nome da pista
