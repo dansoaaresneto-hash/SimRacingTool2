@@ -1,0 +1,5 @@
+{
+  "name": "RaceMind AI",
+  "description": "Assistente de IA em tempo real para rFactor 2 e Le Mans Ultimate com telemetria e recomendações do Gemini.",
+  "requestFramePermissions": []
+}
