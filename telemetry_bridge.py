@@ -105,9 +105,9 @@ def main():
                 track_name = Cbytestring2Python(scor.mTrackName) or "Desconhecida"
 
                 # mWheels[i]: FL=0, FR=1, RL=2, RR=3
-                # mTemperature[3]: left/center/right do pneu em Kelvin
-                # mWear: 0.0-1.0
-                tire_wear = [int(v.mWheels[i].mWear * 100) for i in range(4)]
+                # mWear: 0.0=novo, 1.0=destruído → invertemos para % de VIDA RESTANTE
+                # mTemperature[3]: left/center/right em Kelvin → [1] = centro
+                tire_wear = [int((1.0 - v.mWheels[i].mWear) * 100) for i in range(4)]
                 tire_temp = [int(v.mWheels[i].mTemperature[1] - 273.15) for i in range(4)]
 
                 # Tempo atual na volta = mTimeIntoLap
@@ -121,7 +121,10 @@ def main():
                 data = {
                     "speed": int(speed_kmh),
                     "rpm": int(v.mEngineRPM),
-                    "gear": int(v.mGear),
+                    # rF2: mGear -1=ré, 0=neutro, 1..N=marchas
+                    # App exibe: gear===0 → 'R', gear===1 → 'N', gear-1 → número
+                    # Então somamos 1 para alinhar: -1→0(R), 0→1(N), 1→2(1ª), etc.
+                    "gear": int(v.mGear) + 1,
                     "fuel": round(float(v.mFuel), 2),
                     "fuelCapacity": round(float(v.mFuelCapacity), 2),
                     "tireWear": tire_wear,
@@ -147,7 +150,11 @@ def main():
                     "weather": "Chuva" if scor.mRaining > 0.1 else "Seco",
                     "trackTemp": round(float(scor.mTrackTemp), 1),
                     "ambientTemp": round(float(scor.mAmbientTemp), 1),
+                    # Tanto 'position' (interface TS) quanto 'place' (campo rF2)
+                    "position": int(s.mPlace),
                     "place": int(s.mPlace),
+                    "gapAhead": round(float(s.mTimeBehindNext), 3),
+                    "gapBehind": 0.0,
                     "inPits": bool(s.mInPits),
                     "simulated": False
                 }

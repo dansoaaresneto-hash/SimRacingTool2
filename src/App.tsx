@@ -58,17 +58,62 @@ export default function App() {
   const lastCornerTime = useRef<number>(0);
   const lastVoiceAlertTime = useRef<number>(0);
 
-  const speak = (text: string) => {
-    if (isMuted || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 1.0;
-    const voices = window.speechSynthesis.getVoices();
-    const ptVoice = voices.find(v => v.lang.includes('pt-BR'));
-    if (ptVoice) utterance.voice = ptVoice;
-    window.speechSynthesis.speak(utterance);
+  // ── Azure Neural TTS ──────────────────────────────────────────────────────
+  // Substitua AZURE_TTS_KEY pela sua chave do portal.azure.com
+  // Vozes disponíveis pt-BR: FranciscaNeural (F), AntonioNeural (M), BrendaNeural (F)
+  const AZURE_TTS_KEY    = "SUA_CHAVE_AZURE_AQUI";
+  const AZURE_TTS_REGION = "brazilsouth"; // ajuste se usar outra região
+  const AZURE_TTS_VOICE  = "pt-BR-AntonioNeural";
+  const azureAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const speak = async (text: string) => {
+    if (isMuted) return;
+    try {
+      if (azureAudioRef.current) {
+        azureAudioRef.current.pause();
+        azureAudioRef.current = null;
+      }
+      // 1. Obter token de acesso
+      const tokenRes = await fetch(
+        `https://${AZURE_TTS_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
+        { method: "POST", headers: { "Ocp-Apim-Subscription-Key": AZURE_TTS_KEY } }
+      );
+      const token = await tokenRes.text();
+      // 2. Sintetizar voz
+      const ssml = `<speak version='1.0' xml:lang='pt-BR'>
+        <voice name='${AZURE_TTS_VOICE}'>
+          <prosody rate='1.05'>${text}</prosody>
+        </voice>
+      </speak>`;
+      const audioRes = await fetch(
+        `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+          },
+          body: ssml,
+        }
+      );
+      const blob = await audioRes.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      azureAudioRef.current = audio;
+      audio.play();
+      audio.onended = () => URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[Azure TTS]", err);
+      // Fallback para voz do navegador se a chave não estiver configurada
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'pt-BR';
+        window.speechSynthesis.speak(u);
+      }
+    }
   };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const playAlertSound = (frequency: number = 440, type: OscillatorType = 'sine') => {
     if (!audioContext.current) {
@@ -92,9 +137,9 @@ export default function App() {
     osc.stop(ctx.currentTime + 0.2);
   };
 
-  // Tire wear logic fixed: warning when remaining percentage is low (< 40%)
+  // tireWear = % de vida RESTANTE (100=novo, 0=destruído). Alerta abaixo de 25%.
   const isCriticalFuel = telemetry ? (telemetry.fuel / telemetry.fuelCapacity) < 0.15 : false;
-  const isCriticalTires = telemetry ? telemetry.tireWear.some(w => w < 40) : false;
+  const isCriticalTires = telemetry ? telemetry.tireWear.some(w => w < 25) : false;
   const isCritical = isCriticalFuel || isCriticalTires;
 
   useEffect(() => {

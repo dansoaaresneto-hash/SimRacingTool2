@@ -32,7 +32,7 @@ export function TireStat({ label, wear, color, align = 'left' }: { label: string
       <div className="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
         <motion.div 
           initial={{ width: 0 }}
-          animate={{ width: `${100 - wear}%` }}
+          animate={{ width: `${wear}%` }}
           className={`h-full ${color.replace('text', 'bg')}`}
         />
       </div>
