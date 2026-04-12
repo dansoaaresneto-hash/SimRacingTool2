@@ -61,7 +61,7 @@ export default function App() {
   // ── Azure Neural TTS ──────────────────────────────────────────────────────
   // Substitua AZURE_TTS_KEY pela sua chave do portal.azure.com
   // Vozes disponíveis pt-BR: FranciscaNeural (F), AntonioNeural (M), BrendaNeural (F)
-  const AZURE_TTS_KEY    = "SUA_CHAVE_AZURE_AQUI";
+  const AZURE_TTS_KEY    = "3gWxFXdNXGQYoZAa8CzHwcsWr7qYFD7NVvDm1YR8VNvs2SGHdKuGJQQJ99CCACZoyfiXJ3w3AAAYACOGiVfZ";
   const AZURE_TTS_REGION = "brazilsouth"; // ajuste se usar outra região
   const AZURE_TTS_VOICE  = "pt-BR-AntonioNeural";
   const azureAudioRef = useRef<HTMLAudioElement | null>(null);
