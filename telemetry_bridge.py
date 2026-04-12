@@ -105,9 +105,9 @@ def main():
                 track_name = Cbytestring2Python(scor.mTrackName) or "Desconhecida"
 
                 # mWheels[i]: FL=0, FR=1, RL=2, RR=3
-                # mWear: 0.0=novo, 1.0=destruído → invertemos para % de VIDA RESTANTE
+                # mWear: 1.0=novo, 0.0=destruído → % de VIDA RESTANTE
                 # mTemperature[3]: left/center/right em Kelvin → [1] = centro
-                tire_wear = [int((1.0 - v.mWheels[i].mWear) * 100) for i in range(4)]
+                tire_wear = [int(v.mWheels[i].mWear * 100) for i in range(4)]
                 tire_temp = [int(v.mWheels[i].mTemperature[1] - 273.15) for i in range(4)]
 
                 # Tempo atual na volta = mTimeIntoLap
