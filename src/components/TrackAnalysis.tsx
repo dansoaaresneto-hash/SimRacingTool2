@@ -869,7 +869,12 @@ Em 2 frases diretas em português, diga o que devo corrigir nessa zona específi
                   { label: 'Acelerador', my: cursorFrame.throttle.toFixed(0) + '%',  ref: cursorRefFrame?.throttle.toFixed(0) + '%',  delta: cursorRefFrame ? cursorFrame.throttle - cursorRefFrame.throttle : null, unit: '%', higherBetter: true },
                   { label: 'Freio',      my: cursorFrame.brake.toFixed(0) + '%',     ref: cursorRefFrame?.brake.toFixed(0) + '%',     delta: cursorRefFrame ? cursorFrame.brake - cursorRefFrame.brake : null, unit: '%', higherBetter: false },
                   { label: 'G Lateral', my: cursorFrame.gLat.toFixed(2) + 'g',      ref: cursorRefFrame?.gLat.toFixed(2) + 'g',      delta: null, unit: 'g', higherBetter: false },
-                  { label: 'Marcha',    my: String(Math.max(0, cursorFrame.gear - 1)), ref: cursorRefFrame ? String(Math.max(0, cursorRefFrame.gear - 1)) : '-', delta: null, unit: '', higherBetter: false },
+                  { 
+                    label: 'Marcha',    
+                    my: cursorFrame.gear === -1 ? 'R' : cursorFrame.gear === 0 ? 'N' : String(cursorFrame.gear), 
+                    ref: cursorRefFrame ? (cursorRefFrame.gear === -1 ? 'R' : cursorRefFrame.gear === 0 ? 'N' : String(cursorRefFrame.gear)) : '-', 
+                    delta: null, unit: '', higherBetter: false 
+                  },
                 ].map(row => (
                   <div key={row.label} className="bg-white/3 rounded-lg p-2.5 border border-white/5">
                     <div className="text-[8px] text-white/25 uppercase font-bold mb-1">{row.label}</div>

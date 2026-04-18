@@ -520,7 +520,9 @@ export default function App() {
               </div>
               <div className="text-right">
                 <div className="text-xs font-bold text-white/30 uppercase tracking-widest mb-1">Marcha</div>
-                <div className="text-6xl font-black text-orange-500 italic">{telemetry?.gear === 0 ? 'R' : telemetry?.gear === 1 ? 'N' : (telemetry?.gear ?? 1) - 1}</div>
+                <div className="text-6xl font-black text-orange-500 italic">
+                  {telemetry?.gear === -1 ? 'R' : telemetry?.gear === 0 ? 'N' : telemetry?.gear ?? 'N'}
+                </div>
               </div>
             </div>
             

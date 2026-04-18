@@ -7,7 +7,7 @@ import psutil
 sys.path.insert(0, '.')
 from pyRfactor2SharedMemory.sharedMemoryAPI import SimInfoAPI, Cbytestring2Python
 
-SERVER_URL = "https://simracingtool2.onrender.com"
+SERVER_URL = "http://localhost:3000"
 
 sio = socketio.Client()
 
@@ -129,9 +129,7 @@ def main():
                     "speed": int(speed_kmh),
                     "rpm": int(v.mEngineRPM),
                     # rF2: mGear -1=ré, 0=neutro, 1..N=marchas
-                    # App exibe: gear===0 → 'R', gear===1 → 'N', gear-1 → número
-                    # Então somamos 1 para alinhar: -1→0(R), 0→1(N), 1→2(1ª), etc.
-                    "gear": int(v.mGear) + 1,
+                    "gear": int(v.mGear),
                     "fuel": round(float(v.mFuel), 2),
                     "fuelCapacity": round(float(v.mFuelCapacity), 2),
                     "tireWear": tire_wear,
