@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, Volume2, VolumeX, FileText, History, Clock, Activity } from 'lucide-react';
+import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, Volume2, VolumeX, FileText, History, Clock, Activity, X } from 'lucide-react';
 import { ai, SYSTEM_INSTRUCTION } from './lib/gemini';
 
 // Types
@@ -36,6 +36,7 @@ export default function App() {
   const [sessionAdvice, setSessionAdvice] = useState<string[]>([]);
   const [isGeneratingAdvice, setIsGeneratingAdvice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConnectionGuide, setShowConnectionGuide] = useState(true);
   const [cornerPhaseState, setCornerPhaseState] = useState<'none' | 'braking' | 'cornering'>('none');
   const [lapSummary, setLapSummary] = useState<{
     number: number;
@@ -652,9 +653,15 @@ export default function App() {
       </main>
 
       {/* Instructions Overlay if no telemetry */}
-      {!telemetry && (
+      {!telemetry && showConnectionGuide && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
-          <div className="max-w-md w-full bg-[#1a1a1a] border border-white/10 rounded-3xl p-8 shadow-2xl">
+          <div className="max-w-md w-full bg-[#1a1a1a] border border-white/10 rounded-3xl p-8 shadow-2xl relative">
+            <button 
+              onClick={() => setShowConnectionGuide(false)}
+              className="absolute top-4 right-4 p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5 text-white/40" />
+            </button>
             <div className="w-16 h-16 bg-orange-600 rounded-2xl flex items-center justify-center mb-6 mx-auto">
               <AlertTriangle className="w-8 h-8 text-white" />
             </div>
