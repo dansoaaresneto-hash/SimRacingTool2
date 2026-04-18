@@ -51,6 +51,7 @@ export interface SessionData {
   consistency: { value: number, label: string, color: string };
   feedbacks: FeedbackPoint[];
   advice: string[];
+  recordedLaps?: RecordedLap[];
 }
 
 // ── Tipos para o módulo de Análise de Traçado ─────────────────────────────────

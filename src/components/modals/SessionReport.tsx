@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { X, Trophy, Timer, Zap, Map, MessageSquare, Save } from 'lucide-react';
+import { X, Trophy, Timer, Zap, Map, MessageSquare, Save, Activity } from 'lucide-react';
 import { TelemetryData, FeedbackPoint } from '../../types/telemetry';
 import { StatCard } from '../ui/DashboardUI';
 import { TrackMap } from '../TrackMap';
@@ -15,6 +15,7 @@ interface SessionReportProps {
   advice: string[];
   isGenerating: boolean;
   onSave?: () => void;
+  onExploreTrack?: () => void;
   isSaving?: boolean;
   isPastSession?: boolean;
 }
@@ -29,6 +30,7 @@ export function SessionReport({
   advice,
   isGenerating,
   onSave,
+  onExploreTrack,
   isSaving,
   isPastSession = false
 }: SessionReportProps) {
@@ -66,6 +68,15 @@ export function SessionReport({
               >
                 {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
                 Salvar Sessão
+              </button>
+            )}
+            {onExploreTrack && (
+              <button 
+                onClick={onExploreTrack}
+                className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full text-sm font-bold transition-all"
+              >
+                <Activity className="w-4 h-4 text-orange-500" />
+                Explorar Traçado
               </button>
             )}
             <button onClick={onClose} className="p-4 bg-white/5 hover:bg-white/10 rounded-full transition-colors">

@@ -371,11 +371,18 @@ interface TrackAnalysisProps {
   telemetry: TelemetryData | null;
   laps: { number: number; time: number; timeStr: string }[];
   onClose: () => void;
+  recordedLaps: RecordedLap[];
+  setRecordedLaps: React.Dispatch<React.SetStateAction<RecordedLap[]>>;
 }
 
-export function TrackAnalysis({ telemetry, laps, onClose }: TrackAnalysisProps) {
+export function TrackAnalysis({ 
+  telemetry, 
+  laps, 
+  onClose,
+  recordedLaps,
+  setRecordedLaps
+}: TrackAnalysisProps) {
   // Estado de gravação de voltas
-  const [recordedLaps, setRecordedLaps]   = useState<RecordedLap[]>([]);
   const [refLapIdx, setRefLapIdx]         = useState<number | null>(null);
   const [myLapIdx, setMyLapIdx]           = useState<number | null>(null);
   const [isRecording, setIsRecording]     = useState(true);

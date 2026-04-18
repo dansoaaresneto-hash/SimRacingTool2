@@ -5,7 +5,7 @@ import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, V
 import { ai, SYSTEM_INSTRUCTION } from './lib/gemini';
 
 // Types
-import { TelemetryData, FeedbackPoint, SessionData } from './types/telemetry';
+import { TelemetryData, FeedbackPoint, SessionData, RecordedLap } from './types/telemetry';
 
 // Components
 import { TrackMap } from './components/TrackMap';
@@ -50,6 +50,7 @@ export default function App() {
   const [bestSectors, setBestSectors] = useState<number[]>([Infinity, Infinity, Infinity]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isAidenAnalyzing, setIsAidenAnalyzing] = useState(false);
+  const [recordedLaps, setRecordedLaps] = useState<RecordedLap[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const lastAnalysisTime = useRef<number>(0);
   const lastLapNumber = useRef<number>(0);
@@ -358,6 +359,16 @@ export default function App() {
 
   const consistency = calculateConsistency();
 
+  const handleTestVoice = () => {
+    const testMessages = [
+      "Aiden pronto para o coach. Tudo em ordem com o rádio.",
+      "Sistema de telemetria ativo. Vamos buscar o limite.",
+      "Pneu aquecido, motor em ordem. Pode acelerar."
+    ];
+    const msg = testMessages[Math.floor(Math.random() * testMessages.length)];
+    speak(msg);
+  };
+
   useEffect(() => {
     const savedHistory = localStorage.getItem('race_history');
     if (savedHistory) {
@@ -383,7 +394,8 @@ export default function App() {
       totalLaps: laps.length,
       consistency,
       feedbacks: feedbackPoints,
-      advice: sessionAdvice
+      advice: sessionAdvice,
+      recordedLaps: recordedLaps
     };
 
     const newHistory = [session, ...history];
@@ -462,6 +474,13 @@ export default function App() {
               className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-lg shadow-orange-600/20"
             >
               <FileText className="w-4 h-4" /> Ver Relatório
+            </button>
+            <button 
+              onClick={handleTestVoice}
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5"
+              title="Testar Voz do Aiden"
+            >
+              <MessageSquare className="w-5 h-5 text-green-400" />
             </button>
             <button 
               onClick={() => setIsMuted(!isMuted)}
@@ -712,6 +731,7 @@ export default function App() {
         history={history}
         onSelectSession={(session) => {
           setSelectedSession(session);
+          if (session.recordedLaps) setRecordedLaps(session.recordedLaps);
           setIsHistoryOpen(false);
         }}
       />
@@ -727,6 +747,10 @@ export default function App() {
           advice={selectedSession.advice}
           isGenerating={false}
           isPastSession={true}
+          onExploreTrack={() => {
+            setIsTrackAnalysisOpen(true);
+            setSelectedSession(null);
+          }}
         />
       )}
 
@@ -740,6 +764,8 @@ export default function App() {
             <TrackAnalysis
               telemetry={telemetry}
               laps={laps}
+              recordedLaps={recordedLaps}
+              setRecordedLaps={setRecordedLaps}
               onClose={() => setIsTrackAnalysisOpen(false)}
             />
           </motion.div>
