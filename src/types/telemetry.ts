@@ -23,6 +23,10 @@ export interface TelemetryData {
   gLon: number;
   pos_x: number;
   pos_z: number;
+  // Vetor frontal do carro (linha 0 da matriz mOri do rF2).
+  // Fornecido pelo telemetry_bridge.py para cálculo da centerline.
+  ori_x?: number;
+  ori_z?: number;
   trackName: string;
   lap_dist_pct: number;
   place?: number;

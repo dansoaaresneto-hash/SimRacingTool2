@@ -118,6 +118,13 @@ def main():
                 last_s2 = float(s.mLastSector2) - last_s1  # s2 é acumulado, subtrai s1
                 last_s3 = float(s.mLastLapTime) - float(s.mLastSector2)
 
+                # mOri é uma matriz 3x3 de orientação (row-major).
+                # A linha 0 (mOri[0]) é o vetor "frente" do carro no espaço mundo.
+                # mOri[0].x e mOri[0].z dão o heading no plano XZ (plano da pista).
+                # Usados pelo TrackMap para corrigir o offset lateral e derivar a centerline.
+                ori_forward_x = float(v.mOri[0].x)
+                ori_forward_z = float(v.mOri[0].z)
+
                 data = {
                     "speed": int(speed_kmh),
                     "rpm": int(v.mEngineRPM),
@@ -146,6 +153,11 @@ def main():
                     "lap_dist_pct": round(dist_pct, 2),
                     "pos_x": float(v.mPos.x),
                     "pos_z": float(v.mPos.z),
+                    # Vetor de orientação frontal do carro (linha 0 da matriz mOri).
+                    # O TrackMap usa esses valores para calcular a centerline real da pista
+                    # deslocando cada posição de volta ao centro perpendicular ao heading.
+                    "ori_x": round(ori_forward_x, 6),
+                    "ori_z": round(ori_forward_z, 6),
                     "trackName": track_name,
                     "weather": "Chuva" if scor.mRaining > 0.1 else "Seco",
                     "trackTemp": round(float(scor.mTrackTemp), 1),
