@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, Volume2, VolumeX, FileText, History, Clock } from 'lucide-react';
+import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, Volume2, VolumeX, FileText, History, Clock, Activity } from 'lucide-react';
 import { ai, SYSTEM_INSTRUCTION } from './lib/gemini';
 
 // Types
@@ -9,6 +9,7 @@ import { TelemetryData, FeedbackPoint, SessionData } from './types/telemetry';
 
 // Components
 import { TrackMap } from './components/TrackMap';
+import { TrackAnalysis } from './components/TrackAnalysis';
 import { StatCard, TireStat, VerticalBar } from './components/ui/DashboardUI';
 import { SessionReport } from './components/modals/SessionReport';
 import { HistoryModal } from './components/modals/HistoryModal';
@@ -29,6 +30,7 @@ export default function App() {
   const [feedbackPoints, setFeedbackPoints] = useState<FeedbackPoint[]>([]);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isTrackAnalysisOpen, setIsTrackAnalysisOpen] = useState(false);
   const [history, setHistory] = useState<SessionData[]>([]);
   const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
   const [sessionAdvice, setSessionAdvice] = useState<string[]>([]);
@@ -440,6 +442,12 @@ export default function App() {
           
           <div className="flex items-center gap-3">
             <button 
+              onClick={() => setIsTrackAnalysisOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600/10 hover:bg-orange-600/20 border border-orange-600/20 rounded-xl text-xs font-bold uppercase tracking-widest transition-all text-orange-400"
+            >
+              <Activity className="w-4 h-4" /> Análise de Traçado
+            </button>
+            <button 
               onClick={() => setIsHistoryOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border border-white/5"
             >
@@ -712,6 +720,22 @@ export default function App() {
           isPastSession={true}
         />
       )}
+
+      <AnimatePresence>
+        {isTrackAnalysisOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <TrackAnalysis
+              telemetry={telemetry}
+              laps={laps}
+              onClose={() => setIsTrackAnalysisOpen(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
