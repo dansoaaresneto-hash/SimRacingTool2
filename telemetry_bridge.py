@@ -45,7 +45,7 @@ def lmu_is_running():
 
 def main():
     info = SimInfoAPI()
-    sio.connect(SERVER_URL)
+    sio.connect(SERVER_URL, transports=['websocket'])
 
     print("\n========================================")
     print("  SimRacing Telemetry Bridge - LMU")

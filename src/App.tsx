@@ -51,6 +51,9 @@ export default function App() {
   const [laps, setLaps] = useState<{ number: number, time: number, timeStr: string }[]>([]);
   const [bestSectors, setBestSectors] = useState<number[]>([Infinity, Infinity, Infinity]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const isAnalyzingRef = useRef(false);
+  const lapFeedbacksRef = useRef<string[]>([]);
+  const telemetryRef = useRef<TelemetryData | null>(null);
   const [isAidenAnalyzing, setIsAidenAnalyzing] = useState(false);
   const [recordedLaps, setRecordedLaps] = useState<RecordedLap[]>([]);
   const socketRef = useRef<Socket | null>(null);
@@ -206,6 +209,7 @@ export default function App() {
 
     socketRef.current.on("telemetry_update", (data: TelemetryData) => {
       setTelemetry(data);
+      telemetryRef.current = data;
       
       // Update history (last 5 seconds at ~10Hz = 50 samples)
       historyRef.current = [...historyRef.current, data].slice(-50);
@@ -264,24 +268,30 @@ export default function App() {
         const lapTimeNum = parseLapTime(lapTimeStr);
         
         if (lapTimeNum > 0) {
-          const isBestLap = telemetry && (telemetry.bestLapTime === 0 || lapTimeNum < telemetry.bestLapTime);
+          // Use refs to determine if best lap and generate summary without triggering reconnection
+          const currentBest = telemetryRef.current?.bestLapTime ?? 0;
+          const isBestLap = currentBest === 0 || lapTimeNum < currentBest;
+          
           if (isBestLap) {
             speak("Volta rápida! Continue assim.");
           }
-          
+
           // Trigger Lap Summary
-          const recentFeedbacks = lapFeedbacks.slice(-2);
+          const recentFeedbacks = [...lapFeedbacksRef.current].slice(-2);
           generateLapSummary(
             data.lapNumber - 1,
             lapTimeStr,
-            telemetry?.bestLapTime ? formatTime(telemetry.bestLapTime) : lapTimeStr,
+            currentBest > 0 ? formatTime(currentBest) : lapTimeStr,
             recentFeedbacks
           );
-          setLapFeedbacks([]); // Reset for next lap
+          
+          // Reset lap feedbacks
+          lapFeedbacksRef.current = [];
+          setLapFeedbacks([]);
 
           setLaps(prev => [{ number: data.lapNumber - 1, time: lapTimeNum, timeStr: lapTimeStr }, ...prev].slice(0, 10));
           
-          // Update Best Sectors (only if they are valid > 0)
+          // Best sectors update
           setBestSectors(prev => [
             data.sectors[0] > 0 ? Math.min(prev[0], data.sectors[0]) : prev[0],
             data.sectors[1] > 0 ? Math.min(prev[1], data.sectors[1]) : prev[1],
@@ -320,19 +330,22 @@ export default function App() {
       
       // Periodic AI Analysis (every 10 seconds)
       const now = Date.now();
-      if (now - lastAnalysisTime.current > 10000 && !isAnalyzing) {
-        analyzeTelemetry(data);
-        lastAnalysisTime.current = now;
+      if (now - lastAnalysisTime.current > 10000) {
+        if (!isAnalyzingRef.current) {
+          analyzeTelemetry(data);
+          lastAnalysisTime.current = now;
+        }
       }
     });
 
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [isAnalyzing, telemetry, lapFeedbacks]);
+  }, []);
 
   async function analyzeTelemetry(data: TelemetryData) {
     setIsAnalyzing(true);
+    isAnalyzingRef.current = true;
     try {
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
@@ -341,17 +354,22 @@ export default function App() {
           systemInstruction: SYSTEM_INSTRUCTION,
         },
       });
-      if (response.text) setAiRecommendation(response.text);
+      if (response.text) {
+        setAiRecommendation(response.text);
+        speak(response.text);
+      }
     } catch (error) {
       console.error("Erro na análise da IA:", error);
     } finally {
       setIsAnalyzing(false);
+      isAnalyzingRef.current = false;
     }
   }
 
   async function analyzeCorner(cornerData: TelemetryData[]) {
-    if (cornerData.length < 10 || isAidenAnalyzing) return;
+    if (cornerData.length < 10 || isAidenAnalyzing || isAnalyzingRef.current) return;
     setIsAidenAnalyzing(true);
+    isAnalyzingRef.current = true;
     try {
       const summary = cornerData.map(d => 
         `T:${d.throttle}% B:${d.brake}% S:${d.speed} G:${d.gLat}`
@@ -368,26 +386,27 @@ export default function App() {
       if (response.text) {
         setAidenFeedback(response.text);
         setLapFeedbacks(prev => [...prev, response.text]);
+        lapFeedbacksRef.current.push(response.text);
         
         // Categorize feedback for report
         let category: 'Frenagem' | 'Aceleração' | 'Traçado' = 'Traçado';
         let type: 'positive' | 'correction' | 'critical' = 'correction';
         
-        const text = response.text.toLowerCase();
-        if (text.includes('freio') || text.includes('frenagem')) category = 'Frenagem';
-        else if (text.includes('acelera') || text.includes('saída')) category = 'Aceleração';
+        const textLow = response.text.toLowerCase();
+        if (textLow.includes('freio') || textLow.includes('frenagem')) category = 'Frenagem';
+        else if (textLow.includes('acelera') || textLow.includes('saída')) category = 'Aceleração';
         
-        if (text.includes('ótimo') || text.includes('perfeito') || text.includes('bom')) type = 'positive';
-        else if (text.includes('brusca') || text.includes('tarde') || text.includes('perde')) type = 'critical';
+        if (textLow.includes('ótimo') || textLow.includes('perfeito') || textLow.includes('bom')) type = 'positive';
+        else if (textLow.includes('brusca') || textLow.includes('tarde') || textLow.includes('perde')) type = 'critical';
 
-        if (telemetry) {
+        if (telemetryRef.current) {
           setFeedbackPoints(prev => [...prev, {
             text: response.text,
-            x: telemetry.pos_x,
-            z: telemetry.pos_z,
+            x: telemetryRef.current!.pos_x,
+            z: telemetryRef.current!.pos_z,
             type,
             category,
-            lap_dist_pct: telemetry.lap_dist_pct
+            lap_dist_pct: telemetryRef.current!.lap_dist_pct
           }]);
         }
 
@@ -397,10 +416,14 @@ export default function App() {
       console.error("Erro no Aiden Coach:", error);
     } finally {
       setIsAidenAnalyzing(false);
+      isAnalyzingRef.current = false;
     }
   }
 
   async function generateLapSummary(number: number, time: string, bestTime: string, feedbacks: string[]) {
+    if (isAnalyzingRef.current) return;
+    setIsAnalyzing(true);
+    isAnalyzingRef.current = true;
     try {
       let aiSummary = "Ótimo trabalho na pista.";
       if (feedbacks.length > 0) {
@@ -411,13 +434,19 @@ export default function App() {
             systemInstruction: "Você é um engenheiro de pista. Em 1 frase curta em português, resuma o desempenho desta volta com base nos feedbacks dados. Seja motivador mas técnico.",
           },
         });
-        if (response.text) aiSummary = response.text;
+        if (response.text) {
+          aiSummary = response.text;
+          speak(aiSummary);
+        }
       }
 
       setLapSummary({ number, time, bestTime, feedbacks, aiSummary });
       setTimeout(() => setLapSummary(null), 15000);
     } catch (error) {
       console.error("Erro no resumo da volta:", error);
+    } finally {
+      setIsAnalyzing(false);
+      isAnalyzingRef.current = false;
     }
   }
 
