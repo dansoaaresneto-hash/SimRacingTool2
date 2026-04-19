@@ -46,6 +46,8 @@ export default function App() {
     aiSummary: string;
   } | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const audioEnabledRef = useRef(false);
   const [laps, setLaps] = useState<{ number: number, time: number, timeStr: string }[]>([]);
   const [bestSectors, setBestSectors] = useState<number[]>([Infinity, Infinity, Infinity]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -58,9 +60,14 @@ export default function App() {
   
   // Aiden History and Detection
   const historyRef = useRef<TelemetryData[]>([]);
+  const currentLapFrames = useRef<LapFrame[]>([]);
+  const lastDistPct = useRef<number>(-1);
+  const isRecordingLap = useRef<boolean>(false);
   const cornerPhase = useRef<'none' | 'braking' | 'cornering'>('none');
   const lastCornerTime = useRef<number>(0);
   const lastVoiceAlertTime = useRef<number>(0);
+
+  const MIN_FRAMES_FOR_LAP = 80;
 
   // ── Azure Neural TTS ──────────────────────────────────────────────────────
   // Substitua AZURE_TTS_KEY pela sua chave do portal.azure.com
@@ -71,50 +78,74 @@ export default function App() {
   const azureAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const speak = async (text: string) => {
-    if (isMuted) return;
+    if (isMuted || !audioEnabledRef.current) return;
     try {
-      if (azureAudioRef.current) {
-        azureAudioRef.current.pause();
-        azureAudioRef.current = null;
+      // Initialize audio context if not already
+      if (!audioContext.current) {
+        audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
-      // 1. Obter token de acesso
-      const tokenRes = await fetch(
-        `https://${AZURE_TTS_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
-        { method: "POST", headers: { "Ocp-Apim-Subscription-Key": AZURE_TTS_KEY } }
-      );
-      const token = await tokenRes.text();
-      // 2. Sintetizar voz
-      const ssml = `<speak version='1.0' xml:lang='pt-BR'>
-        <voice name='${AZURE_TTS_VOICE}'>
-          <prosody rate='1.05'>${text}</prosody>
-        </voice>
-      </speak>`;
-      const audioRes = await fetch(
-        `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/ssml+xml",
-            "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
-          },
-          body: ssml,
+      if (audioContext.current.state === 'suspended') {
+        await audioContext.current.resume();
+      }
+
+      const AZURE_KEY = AZURE_TTS_KEY; // Using the provided key
+      
+      if (AZURE_KEY && AZURE_KEY.length > 20) {
+        try {
+          if (azureAudioRef.current) {
+            azureAudioRef.current.pause();
+            azureAudioRef.current = null;
+          }
+          // 1. Obter token de acesso
+          const tokenRes = await fetch(
+            `https://${AZURE_TTS_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
+            { method: "POST", headers: { "Ocp-Apim-Subscription-Key": AZURE_KEY } }
+          );
+          if (tokenRes.ok) {
+            const token = await tokenRes.text();
+            // 2. Sintetizar voz
+            const ssml = `<speak version='1.0' xml:lang='pt-BR'>
+              <voice name='${AZURE_TTS_VOICE}'>
+                <prosody rate='1.05'>${text}</prosody>
+              </voice>
+            </speak>`;
+            const audioRes = await fetch(
+              `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
+              {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${token}`,
+                  "Content-Type": "application/ssml+xml",
+                  "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+                },
+                body: ssml,
+              }
+            );
+            if (audioRes.ok) {
+              const blob = await audioRes.blob();
+              const url  = URL.createObjectURL(blob);
+              const audio = new Audio(url);
+              azureAudioRef.current = audio;
+              await audio.play();
+              audio.onended = () => URL.revokeObjectURL(url);
+              return;
+            }
+          }
+        } catch (azErr) {
+          console.warn("Azure TTS failed, falling back to browser synthesis.", azErr);
         }
-      );
-      const blob = await audioRes.blob();
-      const url  = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      azureAudioRef.current = audio;
-      audio.play();
-      audio.onended = () => URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("[Azure TTS]", err);
-      // Fallback para voz do navegador se a chave não estiver configurada
+      }
+
+      // Fallback para voz do navegador
       if (window.speechSynthesis) {
+        window.speechSynthesis.cancel(); // Cancel current to avoid queue lag
         const u = new SpeechSynthesisUtterance(text);
         u.lang = 'pt-BR';
+        u.rate = 1.1;
         window.speechSynthesis.speak(u);
       }
+    } catch (err) {
+      console.error("[TTS Error]", err);
     }
   };
   // ─────────────────────────────────────────────────────────────────────────
@@ -173,7 +204,55 @@ export default function App() {
       // Update history (last 5 seconds at ~10Hz = 50 samples)
       historyRef.current = [...historyRef.current, data].slice(-50);
 
-      // Lap Completion Detection
+      // Background Lap Recording Logic
+      if (!data.inPits) {
+        const crossedFinish = lastDistPct.current > 90 && data.lap_dist_pct < 10;
+        
+        if (crossedFinish && isRecordingLap.current && currentLapFrames.current.length > MIN_FRAMES_FOR_LAP) {
+          const lapTimeNum = parseLapTime(data.lastLapTime);
+          if (lapTimeNum > 0) {
+            const newLap: RecordedLap = {
+              lapNumber: data.lapNumber - 1,
+              lapTime: lapTimeNum,
+              lapTimeStr: data.lastLapTime,
+              trackName: data.trackName,
+              frames: [...currentLapFrames.current],
+              sectors: [...data.sectors],
+              isReference: false,
+            };
+            setRecordedLaps(prev => {
+              const updated = [...prev, newLap];
+              // Keep only last 20 laps in memory to avoid lag
+              return updated.slice(-20);
+            });
+          }
+          currentLapFrames.current = [];
+          isRecordingLap.current = false;
+        }
+
+        if (crossedFinish || lastDistPct.current < 0) {
+          isRecordingLap.current = true;
+          currentLapFrames.current = [];
+        }
+
+        if (isRecordingLap.current) {
+          currentLapFrames.current.push({
+            lap_dist_pct: data.lap_dist_pct,
+            pos_x: data.pos_x,
+            pos_z: data.pos_z,
+            speed: data.speed,
+            throttle: data.throttle,
+            brake: data.brake,
+            gLat: data.gLat,
+            steering: data.steering,
+            rpm: data.rpm,
+            gear: data.gear
+          });
+        }
+      }
+      lastDistPct.current = data.lap_dist_pct;
+
+      // Lap Completion Detection for HUD/Dashboard
       if (data.lapNumber > lastLapNumber.current && lastLapNumber.current !== 0) {
         const lapTimeStr = data.lastLapTime;
         const lapTimeNum = parseLapTime(lapTimeStr);
@@ -206,22 +285,28 @@ export default function App() {
       }
       lastLapNumber.current = data.lapNumber;
 
-      // Corner Detection Logic
+      // Corner Detection Logic (Improved)
       const nowTime = Date.now();
-      if (nowTime - lastCornerTime.current > 5000) { // Cooldown
-        if (cornerPhase.current === 'none' && data.brake > 20) {
+      if (nowTime - lastCornerTime.current > 4000) { // Slightly shorter cooldown
+        // Trigger braking phase
+        if (cornerPhase.current === 'none' && (data.brake > 15 || (data.throttle < 5 && data.speed > 50))) {
           cornerPhase.current = 'braking';
           setCornerPhaseState('braking');
-        } else if (cornerPhase.current === 'braking' && Math.abs(data.gLat) > 0.3) {
+        } 
+        // Trigger cornering phase (Lateral G load)
+        else if (cornerPhase.current === 'braking' && Math.abs(data.gLat) > 0.25) {
           cornerPhase.current = 'cornering';
           setCornerPhaseState('cornering');
-        } else if (cornerPhase.current === 'cornering' && data.throttle > 20) {
-          // Sequence complete: Braking -> Cornering -> Acceleration
+        } 
+        // Detection of Apex/Exit (Back on throttle)
+        else if (cornerPhase.current === 'cornering' && data.throttle > 25) {
           analyzeCorner(historyRef.current);
           cornerPhase.current = 'none';
           setCornerPhaseState('none');
           lastCornerTime.current = nowTime;
-        } else if (data.speed < 10) { // Reset if stopped
+        } 
+        // Reset if we slowed down too much or straightened up without throttle
+        else if (data.speed < 20 || (cornerPhase.current !== 'none' && Math.abs(data.gLat) < 0.1 && data.throttle < 10)) {
           cornerPhase.current = 'none';
           setCornerPhaseState('none');
         }
@@ -683,24 +768,54 @@ export default function App() {
             >
               <X className="w-5 h-5 text-white/40" />
             </button>
-            <div className="w-16 h-16 bg-orange-600 rounded-2xl flex items-center justify-center mb-6 mx-auto">
-              <AlertTriangle className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 bg-orange-600 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg shadow-orange-600/30">
+              <Zap className="w-8 h-8 text-white" fill="currentColor" />
             </div>
-            <h2 className="text-2xl font-bold text-center mb-4">Aguardando Conexão</h2>
-            <p className="text-white/60 text-center mb-8">
-              Para usar o assistente, você precisa executar o script de ponte no seu PC local onde o jogo está rodando.
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-center italic">Conecte sua <span className="text-orange-500">Telemetria</span></h2>
+            <p className="text-white/40 text-center text-sm mt-3 leading-relaxed font-medium px-4">
+              Aguardando sinal do simulador. Configure seu PC para o coach Aiden assumir o rádio.
             </p>
-            <div className="space-y-4">
-              <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                <div className="text-xs font-bold text-orange-500 uppercase mb-2">Passo 1</div>
-                <div className="text-sm">Instale as dependências: <code className="bg-black px-2 py-0.5 rounded text-orange-400">pip install socketio-client pyRfactor2SharedMemory</code></div>
+            
+            <div className="space-y-4 mt-8">
+              <div className="p-4 bg-white/5 rounded-2x border border-white/10">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-2">1. Ponte Python</div>
+                <p className="text-xs text-white/50 leading-relaxed font-medium">Execute <code className="bg-black/40 px-2 py-0.5 rounded text-orange-400">python telemetry_bridge.py</code> no PC onde o jogo está rodando.</p>
               </div>
-              <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                <div className="text-xs font-bold text-orange-500 uppercase mb-2">Passo 2</div>
-                <div className="text-sm">Execute o arquivo <code className="bg-black px-2 py-0.5 rounded text-orange-400">telemetry_bridge.py</code> que está na raiz deste projeto.</div>
+              <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-2">2. Ativar Coach</div>
+                <button 
+                  onClick={() => {
+                    audioEnabledRef.current = true;
+                    setAudioEnabled(true);
+                    handleTestVoice();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-orange-600 hover:bg-orange-500 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-orange-600/20"
+                >
+                  <Volume2 className="w-4 h-4 text-white" /> Habilitar Coaching por Voz
+                </button>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Persistent Audio Activation if not enabled */}
+      {!audioEnabled && telemetry && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200]">
+          <motion.button 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            whileHover={{ scale: 1.05 }}
+            onClick={() => {
+              audioEnabledRef.current = true;
+              setAudioEnabled(true);
+              handleTestVoice();
+            }}
+            className="flex items-center gap-3 px-8 py-4 bg-orange-600 rounded-full shadow-[0_20px_50px_rgba(234,88,12,0.4)] text-sm font-black uppercase tracking-widest hover:bg-orange-500 transition-all border-4 border-black ring-4 ring-orange-600/30 group"
+          >
+            <Volume2 className="w-5 h-5 group-hover:animate-pulse" />
+            Ativar Coach (Clique Aqui)
+          </motion.button>
         </div>
       )}
 

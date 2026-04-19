@@ -395,59 +395,16 @@ export function TrackAnalysis({
   const [isAnalyzing, setIsAnalyzing]     = useState(false);
   const [activeZone, setActiveZone]       = useState<AnalysisZone | null>(null);
 
-  // Buffer de gravação
-  const currentFrames = useRef<LapFrame[]>([]);
-  const lastLapNum    = useRef(-1);
-  const lastDistRef   = useRef(-1);
-  const recStarted    = useRef(false);
-
-  // ── Grava frames da telemetria em tempo real ──────────────────────────────
+  // Auto-seleciona voltas quando recordedLaps muda
   useEffect(() => {
-    if (!telemetry || !isRecording) return;
-    const { pos_x, pos_z, speed, throttle, brake, gLat, steering, rpm, gear, lap_dist_pct, inPits, lapNumber } = telemetry;
-
-    if (inPits) return;
-
-    const crossedFinish = lastDistRef.current > 90 && lap_dist_pct < 10;
-
-    if (crossedFinish && recStarted.current && currentFrames.current.length > MIN_FRAMES_FOR_LAP) {
-      // Volta completa — salva
-      const lapTimeNum = parseLapTime(telemetry.lastLapTime);
-      if (lapTimeNum > 0) {
-        const newLap: RecordedLap = {
-          lapNumber: lapNumber - 1,
-          lapTime: lapTimeNum,
-          lapTimeStr: telemetry.lastLapTime,
-          trackName: telemetry.trackName,
-          frames: [...currentFrames.current],
-          sectors: [...telemetry.sectors],
-          isReference: false,
-        };
-        setRecordedLaps(prev => {
-          const updated = [...prev, newLap];
-          // Auto-seleciona: ref = mais rápida, minha = última
-          const fastestIdx = updated.reduce((bi, l, i) => l.lapTime < updated[bi].lapTime ? i : bi, 0);
-          setRefLapIdx(fastestIdx);
-          setMyLapIdx(updated.length - 1);
-          return updated;
-        });
+    if (recordedLaps.length > 0) {
+      if (myLapIdx === null) setMyLapIdx(recordedLaps.length - 1);
+      if (refLapIdx === null) {
+        const fastestIdx = recordedLaps.reduce((bi, l, i) => l.lapTime < recordedLaps[bi].lapTime ? i : bi, 0);
+        setRefLapIdx(fastestIdx);
       }
-      currentFrames.current = [];
-      recStarted.current = false;
     }
-
-    if (crossedFinish || lastDistRef.current < 0) {
-      recStarted.current = true;
-      currentFrames.current = [];
-    }
-
-    lastDistRef.current = lap_dist_pct;
-    lastLapNum.current  = lapNumber;
-
-    if (!recStarted.current) return;
-
-    currentFrames.current.push({ lap_dist_pct, pos_x, pos_z, speed, throttle, brake, gLat, steering, rpm, gear });
-  }, [telemetry, isRecording]);
+  }, [recordedLaps]);
 
   // ── Voltas preparadas para o canvas ──────────────────────────────────────
   const myBuckets  = useMemo(() => myLapIdx  !== null ? bucketize(recordedLaps[myLapIdx].frames)  : [], [recordedLaps, myLapIdx]);
