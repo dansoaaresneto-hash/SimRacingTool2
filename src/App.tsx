@@ -5,7 +5,7 @@ import { Fuel, Gauge, Cloud, Trophy, AlertTriangle, MessageSquare, Timer, Zap, V
 import { ai, SYSTEM_INSTRUCTION } from './lib/gemini';
 
 // Types
-import { TelemetryData, FeedbackPoint, SessionData, RecordedLap } from './types/telemetry';
+import { TelemetryData, FeedbackPoint, SessionData, RecordedLap, LapFrame } from './types/telemetry';
 
 // Components
 import { TrackMap } from './components/TrackMap';
@@ -96,43 +96,49 @@ export default function App() {
             azureAudioRef.current.pause();
             azureAudioRef.current = null;
           }
-          // 1. Obter token de acesso
-          const tokenRes = await fetch(
-            `https://${AZURE_TTS_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
-            { method: "POST", headers: { "Ocp-Apim-Subscription-Key": AZURE_KEY } }
-          );
-          if (tokenRes.ok) {
-            const token = await tokenRes.text();
-            // 2. Sintetizar voz
-            const ssml = `<speak version='1.0' xml:lang='pt-BR'>
-              <voice name='${AZURE_TTS_VOICE}'>
-                <prosody rate='1.05'>${text}</prosody>
-              </voice>
-            </speak>`;
-            const audioRes = await fetch(
-              `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
-              {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${token}`,
-                  "Content-Type": "application/ssml+xml",
-                  "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
-                },
-                body: ssml,
-              }
-            );
-            if (audioRes.ok) {
-              const blob = await audioRes.blob();
-              const url  = URL.createObjectURL(blob);
-              const audio = new Audio(url);
-              azureAudioRef.current = audio;
-              await audio.play();
-              audio.onended = () => URL.revokeObjectURL(url);
-              return;
+
+          // 1. Sintetizar voz diretamente (Azure permite passar a chave no cabeçalho Ocp-Apim-Subscription-Key)
+          const ssml = `<speak version='1.0' xml:lang='pt-BR'>
+            <voice name='${AZURE_TTS_VOICE}'>
+              <prosody rate='1.05' pitch='0%'>${text}</prosody>
+            </voice>
+          </speak>`;
+          
+          const audioRes = await fetch(
+            `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
+            {
+              method: "POST",
+              headers: {
+                "Ocp-Apim-Subscription-Key": AZURE_KEY,
+                "Content-Type": "application/ssml+xml",
+                "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+                "User-Agent": "RaceMindAI"
+              },
+              body: ssml,
             }
+          );
+
+          if (audioRes.ok) {
+            const blob = await audioRes.blob();
+            const url  = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            azureAudioRef.current = audio;
+            
+            // Garantir que o volume esteja no máximo
+            audio.volume = 1;
+            
+            await audio.play();
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              azureAudioRef.current = null;
+            };
+            return;
+          } else {
+            const errorText = await audioRes.text();
+            console.warn(`Azure TTS status error: ${audioRes.status}`, errorText);
           }
         } catch (azErr) {
-          console.warn("Azure TTS failed, falling back to browser synthesis.", azErr);
+          console.error("Azure TTS direct call failed:", azErr);
         }
       }
 
@@ -445,10 +451,18 @@ export default function App() {
   const consistency = calculateConsistency();
 
   const handleTestVoice = () => {
+    // Se o usuário clicou no botão de teste, ele quer ouvir a voz.
+    // Ativamos os mecanismos de áudio se estiverem desligados.
+    if (!audioEnabledRef.current) {
+      audioEnabledRef.current = true;
+      setAudioEnabled(true);
+    }
+    
     const testMessages = [
       "Aiden pronto para o coach. Tudo em ordem com o rádio.",
       "Sistema de telemetria ativo. Vamos buscar o limite.",
-      "Pneu aquecido, motor em ordem. Pode acelerar."
+      "Pneu aquecido, motor em ordem. Pode acelerar.",
+      "Rádio checado. Boa sorte na pista."
     ];
     const msg = testMessages[Math.floor(Math.random() * testMessages.length)];
     speak(msg);
@@ -562,10 +576,11 @@ export default function App() {
             </button>
             <button 
               onClick={handleTestVoice}
-              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5"
-              title="Testar Voz do Aiden"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-600/20 rounded-xl text-xs font-bold uppercase tracking-widest transition-all text-blue-400"
+              title="Testar rádio do Aiden"
             >
-              <MessageSquare className="w-5 h-5 text-green-400" />
+              <MessageSquare className="w-4 h-4" /> 
+              <span className="hidden md:inline">Testar Rádio</span>
             </button>
             <button 
               onClick={() => setIsMuted(!isMuted)}
